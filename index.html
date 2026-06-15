@@ -488,6 +488,29 @@ async function search() {
   }
 }
 
+function updateURL(address, radius) {
+  const params = new URLSearchParams({ q: address, r: radius });
+  history.pushState(null, '', '?' + params.toString());
+}
+
+const originalSearch = search;
+search = async function() {
+  const address = addressInput.value.trim();
+  const radius = radiusSelect.value;
+  if (address) updateURL(address, radius);
+  await originalSearch();
+};
+
+// On load, read URL params and auto-search
+const params = new URLSearchParams(location.search);
+if (params.has('q')) {
+  addressInput.value = params.get('q');
+  if (params.has('r') && radiusSelect.querySelector(`option[value="${params.get('r')}"]`)) {
+    radiusSelect.value = params.get('r');
+  }
+  search();
+}
+
 searchBtn.addEventListener('click', search);
 addressInput.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
 </script>
