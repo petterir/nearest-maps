@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nearest Grocery Stores</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #f5f5f5;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 12px 16px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      z-index: 1000;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #222;
+      white-space: nowrap;
+    }
+
+    #address-input {
+      flex: 1;
+      min-width: 220px;
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #address-input:focus { border-color: #4285f4; }
+
+    #radius-select {
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    #search-btn {
+      padding: 8px 18px;
+      background: #4285f4;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    #search-btn:hover { background: #3367d6; }
+    #search-btn:disabled { background: #aaa; cursor: not-allowed; }
+
+    #status {
+      font-size: 13px;
+      color: #666;
+      padding: 4px 0;
+      min-width: 180px;
+    }
+
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    #map {
+      flex: 1;
+      z-index: 0;
+    }
+
+    #sidebar {
+      width: 300px;
+      background: #fff;
+      border-left: 1px solid #e0e0e0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #sidebar-header {
+      padding: 12px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      border-bottom: 1px solid #eee;
+      background: #fafafa;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .store-card {
+      padding: 12px 14px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .store-card:hover { background: #f7f9ff; }
+    .store-card.active { background: #ebf2ff; border-left: 3px solid #4285f4; }
+
+    .store-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #222;
+      margin-bottom: 4px;
+    }
+
+    .store-meta {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .store-stats {
+      display: flex;
+      gap: 12px;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #444;
+    }
+
+    .stat-icon { font-size: 14px; }
+    .stat-value { color: #222; }
+
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: #aaa;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .route-color-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    .leaflet-popup-content-wrapper {
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    }
+
+    .popup-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .popup-detail { font-size: 12px; color: #555; margin: 2px 0; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🛒 Nearest Grocery Stores</h1>
+  <input id="address-input" type="text" placeholder="Enter your home address…" value="" />
+  <select id="radius-select">
+    <option value="500">500 m</option>
+    <option value="1000" selected>1 km</option>
+    <option value="1500">1.5 km</option>
+    <option value="2000">2 km</option>
+    <option value="3000">3 km</option>
+  </select>
+  <button id="search-btn">Search</button>
+  <span id="status"></span>
+</header>
+
+<div class="main">
+  <div id="map"></div>
+  <div id="sidebar">
+    <div id="sidebar-header">Results</div>
+    <div id="store-list">
+      <div class="empty-state">Enter your address and click Search to find nearby grocery stores.</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const ROUTE_COLORS = [
+  '#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6',
+  '#1abc9c','#e67e22','#34495e','#e91e63','#00bcd4'
+];
+
+const map = L.map('map').setView([60.1699, 24.9384], 13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19
+}).addTo(map);
+
+let homeMarker = null;
+let storeMarkers = [];
+let routeLayers = [];
+let activeCardIndex = null;
+
+const statusEl = document.getElementById('status');
+const storeListEl = document.getElementById('store-list');
+const searchBtn = document.getElementById('search-btn');
+const addressInput = document.getElementById('address-input');
+const radiusSelect = document.getElementById('radius-select');
+
+function setStatus(msg) { statusEl.textContent = msg; }
+
+function clearMap() {
+  if (homeMarker) { map.removeLayer(homeMarker); homeMarker = null; }
+  storeMarkers.forEach(m => map.removeLayer(m));
+  storeMarkers = [];
+  routeLayers.forEach(l => map.removeLayer(l));
+  routeLayers = [];
+  activeCardIndex = null;
+}
+
+async function geocode(address) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+  const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+  const data = await res.json();
+  if (!data.length) throw new Error('Address not found');
+  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
+}
+
+async function findGroceryStores(lat, lon, radiusMeters) {
+  const query = `
+    [out:json][timeout:25];
+    (
+      node["shop"="supermarket"](around:${radiusMeters},${lat},${lon});
+      node["shop"="grocery"](around:${radiusMeters},${lat},${lon});
+      node["shop"="convenience"](around:${radiusMeters},${lat},${lon});
+      node["shop"="greengrocer"](around:${radiusMeters},${lat},${lon});
+      node["shop"="food"](around:${radiusMeters},${lat},${lon});
+      way["shop"="supermarket"](around:${radiusMeters},${lat},${lon});
+      way["shop"="grocery"](around:${radiusMeters},${lat},${lon});
+      way["shop"="convenience"](around:${radiusMeters},${lat},${lon});
+    );
+    out center;
+  `;
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    body: 'data=' + encodeURIComponent(query)
+  });
+  const data = await res.json();
+  return data.elements.map(el => ({
+    id: el.id,
+    lat: el.lat ?? el.center?.lat,
+    lon: el.lon ?? el.center?.lon,
+    name: el.tags?.name || el.tags?.['name:en'] || 'Unnamed store',
+    brand: el.tags?.brand || '',
+    type: el.tags?.shop || 'grocery',
+    opening_hours: el.tags?.opening_hours || '',
+    addr: [el.tags?.['addr:street'], el.tags?.['addr:housenumber']].filter(Boolean).join(' ')
+  })).filter(s => s.lat && s.lon);
+}
+
+// Decode Valhalla's encoded polyline6 format into a GeoJSON LineString
+function decodePolyline6(encoded) {
+  const coords = [];
+  let index = 0, lat = 0, lon = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lon += (result & 1) ? ~(result >> 1) : (result >> 1);
+    coords.push([lon / 1e6, lat / 1e6]);
+  }
+  return { type: 'LineString', coordinates: coords };
+}
+
+async function getWalkingRoute(fromLat, fromLon, toLat, toLon) {
+  const body = {
+    locations: [{ lon: fromLon, lat: fromLat }, { lon: toLon, lat: toLat }],
+    costing: 'pedestrian',
+    directions_options: { units: 'km' }
+  };
+  const res = await fetch('https://valhalla1.openstreetmap.de/route', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (!data.trip) return null;
+  return {
+    geometry: decodePolyline6(data.trip.legs[0].shape),
+    distance: data.trip.summary.length * 1000,  // km → meters
+    duration: data.trip.summary.time             // seconds
+  };
+}
+
+function formatDistance(meters) {
+  return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
+}
+
+function formatDuration(seconds) {
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}min`;
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function homeIcon() {
+  return L.divIcon({
+    html: `<div style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4))">🏠</div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 28],
+    className: ''
+  });
+}
+
+function storeIcon(color, index) {
+  return L.divIcon({
+    html: `<div style="background:${color};color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;box-shadow:0 2px 5px rgba(0,0,0,0.3);border:2px solid #fff">${index+1}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    className: ''
+  });
+}
+
+function buildSidebar(stores) {
+  if (!stores.length) {
+    storeListEl.innerHTML = '<div class="empty-state">No grocery stores found nearby. Try increasing the search radius.</div>';
+    return;
+  }
+
+  storeListEl.innerHTML = '';
+  stores.forEach((store, i) => {
+    const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+    const card = document.createElement('div');
+    card.className = 'store-card';
+    card.dataset.index = i;
+
+    const distStr = store.routeDistance != null ? formatDistance(store.routeDistance) : formatDistance(store.straightLine);
+    const timeStr = store.routeDuration != null ? formatDuration(store.routeDuration) : '—';
+
+    card.innerHTML = `
+      <div class="store-name">
+        <span class="route-color-dot" style="background:${color}"></span>
+        ${i+1}. ${store.name}
+      </div>
+      <div class="store-meta">${store.type}${store.addr ? ' · ' + store.addr : ''}</div>
+      <div class="store-stats">
+        <div class="stat"><span class="stat-icon">🚶</span><span class="stat-value">${distStr}</span></div>
+        <div class="stat"><span class="stat-icon">⏱</span><span class="stat-value">${timeStr}</span></div>
+      </div>
+    `;
+
+    card.addEventListener('click', () => focusStore(i, stores));
+    storeListEl.appendChild(card);
+  });
+}
+
+function focusStore(index, stores) {
+  document.querySelectorAll('.store-card').forEach(c => c.classList.remove('active'));
+  const card = document.querySelector(`.store-card[data-index="${index}"]`);
+  if (card) { card.classList.add('active'); card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+
+  const store = stores[index];
+  map.setView([store.lat, store.lon], 15);
+  storeMarkers[index]?.openPopup();
+
+  routeLayers.forEach((l, i) => {
+    if (l) l.setStyle({ opacity: i === index ? 1 : 0.2, weight: i === index ? 5 : 3 });
+  });
+}
+
+async function search() {
+  const address = addressInput.value.trim();
+  if (!address) { alert('Please enter an address.'); return; }
+
+  clearMap();
+  storeListEl.innerHTML = '<div class="empty-state">Searching…</div>';
+  searchBtn.disabled = true;
+
+  try {
+    setStatus('Geocoding address…');
+    const home = await geocode(address);
+
+    homeMarker = L.marker([home.lat, home.lon], { icon: homeIcon(), zIndexOffset: 1000 })
+      .addTo(map)
+      .bindPopup(`<div class="popup-title">🏠 Home</div><div class="popup-detail">${home.display}</div>`);
+
+    setStatus('Finding grocery stores…');
+    const radius = parseInt(radiusSelect.value);
+    let stores = await findGroceryStores(home.lat, home.lon, radius);
+
+    if (!stores.length) {
+      setStatus('');
+      buildSidebar([]);
+      map.setView([home.lat, home.lon], 14);
+      return;
+    }
+
+    // Sort by straight-line distance, limit to 10
+    stores = stores
+      .map(s => ({ ...s, straightLine: haversine(home.lat, home.lon, s.lat, s.lon) }))
+      .sort((a, b) => a.straightLine - b.straightLine)
+      .slice(0, 10);
+
+    setStatus(`Fetching ${stores.length} walking routes…`);
+
+    // Fetch routes in parallel
+    const routeResults = await Promise.all(
+      stores.map(s => getWalkingRoute(home.lat, home.lon, s.lat, s.lon).catch(() => null))
+    );
+
+    routeResults.forEach((route, i) => {
+      if (route) {
+        stores[i].routeDistance = route.distance;
+        stores[i].routeDuration = route.duration;
+        stores[i].geometry = route.geometry;
+      }
+    });
+
+    // Re-sort by walking distance if available
+    stores.sort((a, b) => (a.routeDistance ?? a.straightLine) - (b.routeDistance ?? b.straightLine));
+
+    const bounds = L.latLngBounds([[home.lat, home.lon]]);
+
+    stores.forEach((store, i) => {
+      const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+
+      if (store.geometry) {
+        const layer = L.geoJSON(store.geometry, {
+          style: { color, weight: 4, opacity: 0.75, lineJoin: 'round', lineCap: 'round' }
+        }).addTo(map);
+        routeLayers[i] = layer;
+      } else {
+        routeLayers[i] = null;
+      }
+
+      const distStr = store.routeDistance != null ? formatDistance(store.routeDistance) : formatDistance(store.straightLine);
+      const timeStr = store.routeDuration != null ? formatDuration(store.routeDuration) : '—';
+
+      const marker = L.marker([store.lat, store.lon], { icon: storeIcon(color, i) })
+        .addTo(map)
+        .bindPopup(`
+          <div class="popup-title">${store.name}</div>
+          <div class="popup-detail">🚶 ${distStr} &nbsp; ⏱ ${timeStr}</div>
+          ${store.addr ? `<div class="popup-detail">📍 ${store.addr}</div>` : ''}
+          ${store.opening_hours ? `<div class="popup-detail">🕐 ${store.opening_hours}</div>` : ''}
+        `);
+
+      marker.on('click', () => focusStore(i, stores));
+      storeMarkers[i] = marker;
+      bounds.extend([store.lat, store.lon]);
+    });
+
+    map.fitBounds(bounds, { padding: [40, 40] });
+    buildSidebar(stores);
+    setStatus(`Found ${stores.length} stores`);
+
+  } catch (err) {
+    setStatus('Error: ' + err.message);
+    storeListEl.innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+  } finally {
+    searchBtn.disabled = false;
+  }
+}
+
+searchBtn.addEventListener('click', search);
+addressInput.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+</script>
+</body>
+</html>
